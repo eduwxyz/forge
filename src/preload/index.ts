@@ -5,7 +5,8 @@ const validChannels = [
   'pty:exit',
   'terminal:split-horizontal',
   'terminal:split-vertical',
-  'terminal:close-panel'
+  'terminal:close-panel',
+  'terminal:spawn-agent'
 ]
 
 contextBridge.exposeInMainWorld('api', {

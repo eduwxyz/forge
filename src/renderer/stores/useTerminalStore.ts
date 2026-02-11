@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { PanelNode, SplitPanel, TerminalPanel, TerminalTab } from '../types'
+import type { AgentInfo, AgentType, PanelNode, SplitPanel, TerminalPanel, TerminalTab } from '../types'
 
 // ─── Tree utilities ───────────────────────────────────────────────
 
@@ -55,6 +55,9 @@ interface TerminalState {
   closePanel: (panelId: string) => void
   setFocusedPanel: (panelId: string) => void
   setSplitRatio: (splitId: string, ratio: number) => void
+
+  setAgentInfo: (panelId: string, agent: AgentInfo) => void
+  addAgentTab: (agentType: AgentType, cwd?: string) => TerminalTab
 }
 
 function makeTerminalPanel(): TerminalPanel {
@@ -188,5 +191,43 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, root: newRoot } : t))
     }))
+  },
+
+  setAgentInfo: (panelId, agent) => {
+    const state = get()
+    for (const tab of state.tabs) {
+      const node = findNode(tab.root, panelId)
+      if (node && node.type === 'terminal') {
+        const updated: TerminalPanel = { ...node, agent }
+        const newRoot = replaceNode(tab.root, panelId, updated)
+        const newTitle = agent.type === 'claude' ? 'Claude Code' : tab.title
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tab.id ? { ...t, root: newRoot, title: newTitle } : t
+          )
+        }))
+        return
+      }
+    }
+  },
+
+  addAgentTab: (agentType, cwd?) => {
+    const panel: TerminalPanel = {
+      type: 'terminal',
+      id: crypto.randomUUID(),
+      agent: { type: agentType, status: 'starting' }
+    }
+    const tab: TerminalTab = {
+      id: crypto.randomUUID(),
+      title: 'Claude Code',
+      cwd: cwd || '~',
+      root: panel,
+      focusedPanelId: panel.id
+    }
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: tab.id
+    }))
+    return tab
   }
 }))

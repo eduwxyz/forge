@@ -1,8 +1,18 @@
+// === Agent types ===
+
+export type AgentType = 'claude' // futuro: | 'codex' | 'gemini'
+export type AgentStatus = 'starting' | 'active' | 'idle' | 'exited'
+export interface AgentInfo {
+  type: AgentType
+  status: AgentStatus
+}
+
 // === Panel tree types ===
 
 export interface TerminalPanel {
   type: 'terminal'
   id: string // unique panel id, also used as PTY id
+  agent?: AgentInfo // undefined = shell normal
 }
 
 export interface SplitPanel {

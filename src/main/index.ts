@@ -62,6 +62,13 @@ function createWindow() {
       mainWindow?.webContents.send('terminal:close-panel')
       return
     }
+
+    // Cmd+Shift+A → spawn agent tab
+    if ((input.key === 'A' || input.key === 'a') && input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('terminal:spawn-agent', 'claude')
+      return
+    }
   })
 }
 

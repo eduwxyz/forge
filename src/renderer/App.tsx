@@ -1,7 +1,16 @@
 import { useEffect } from 'react'
 import { Plus, X } from 'lucide-react'
-import { useTerminalStore, getAllTerminalIds } from './stores/useTerminalStore'
+import { useTerminalStore, getAllTerminalIds, findNode } from './stores/useTerminalStore'
 import PanelTree from './components/terminal/PanelTree'
+import type { AgentType, PanelNode, TerminalPanel } from './types'
+
+function hasActiveAgent(root: PanelNode): boolean {
+  if (root.type === 'terminal') {
+    const panel = root as TerminalPanel
+    return panel.agent != null && panel.agent.status !== 'exited'
+  }
+  return hasActiveAgent(root.first) || hasActiveAgent(root.second)
+}
 
 export default function App() {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
@@ -56,6 +65,13 @@ export default function App() {
       })
     )
 
+    unsubs.push(
+      window.api.on('terminal:spawn-agent', (...args: unknown[]) => {
+        const agentType = (args[0] as AgentType) || 'claude'
+        useTerminalStore.getState().addAgentTab(agentType)
+      })
+    )
+
     return () => unsubs.forEach((u) => u())
   }, [])
 
@@ -104,6 +120,7 @@ export default function App() {
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId
             const panelCount = getAllTerminalIds(tab.root).length
+            const tabHasAgent = hasActiveAgent(tab.root)
             return (
               <button
                 key={tab.id}
@@ -126,7 +143,11 @@ export default function App() {
                     width: 6,
                     height: 6,
                     borderRadius: '50%',
-                    background: isActive ? 'var(--color-success)' : 'var(--color-text-tertiary)',
+                    background: tabHasAgent
+                      ? '#6366F1'
+                      : isActive
+                        ? 'var(--color-success)'
+                        : 'var(--color-text-tertiary)',
                     flexShrink: 0
                   }}
                 />

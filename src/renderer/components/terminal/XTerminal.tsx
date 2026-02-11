@@ -3,7 +3,9 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
-import { useTerminalStore } from '../../stores/useTerminalStore'
+import { useTerminalStore, findNode } from '../../stores/useTerminalStore'
+import { createDetector } from '../../lib/agentDetector'
+import type { AgentInfo, TerminalPanel } from '../../types'
 
 interface XTerminalProps {
   id: string
@@ -41,7 +43,18 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const initialized = useRef(false)
+  const detectorRef = useRef(createDetector())
   const setFocusedPanel = useTerminalStore((s) => s.setFocusedPanel)
+  const setAgentInfo = useTerminalStore((s) => s.setAgentInfo)
+
+  // Read agent info for this panel from the store
+  const agentInfo = useTerminalStore((s) => {
+    for (const tab of s.tabs) {
+      const node = findNode(tab.root, id)
+      if (node && node.type === 'terminal') return (node as TerminalPanel).agent ?? null
+    }
+    return null
+  })
 
   useEffect(() => {
     if (!containerRef.current || initialized.current) return
@@ -82,6 +95,16 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
     // Create PTY with terminal dimensions
     window.api.pty.create(id, terminal.cols, terminal.rows)
 
+    // Auto-launch agent if panel has agent set
+    const currentState = useTerminalStore.getState()
+    for (const tab of currentState.tabs) {
+      const node = findNode(tab.root, id)
+      if (node && node.type === 'terminal' && (node as TerminalPanel).agent) {
+        setTimeout(() => window.api.pty.write(id, 'claude\n'), 300)
+        break
+      }
+    }
+
     // Forward user input to PTY
     terminal.onData((data) => {
       window.api.pty.write(id, data)
@@ -92,6 +115,10 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
       const event = args[0] as { id: string; data: string }
       if (event.id === id) {
         terminal.write(event.data)
+        const change = detectorRef.current.feed(event.data)
+        if (change) {
+          useTerminalStore.getState().setAgentInfo(id, change)
+        }
       }
     })
 
@@ -148,6 +175,17 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
     terminalRef.current?.focus()
   }
 
+  const hasAgent = agentInfo != null
+  const agentActive = agentInfo?.status === 'active'
+  const agentExited = agentInfo?.status === 'exited'
+
+  // Agent border: subtle indigo when active and not focused
+  const borderColor = isFocused
+    ? 'rgba(99, 102, 241, 0.4)'
+    : hasAgent && agentActive
+      ? 'rgba(99, 102, 241, 0.15)'
+      : 'rgba(255, 255, 255, 0.06)'
+
   return (
     <div
       onClick={handleClick}
@@ -157,9 +195,7 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
         position: 'relative',
         overflow: 'hidden',
         borderRadius: 4,
-        border: isFocused
-          ? '1px solid rgba(99, 102, 241, 0.4)'
-          : '1px solid rgba(255, 255, 255, 0.06)',
+        border: `1px solid ${borderColor}`,
         boxShadow: isFocused ? '0 0 12px rgba(99, 102, 241, 0.1)' : 'none',
         transition: 'border-color 0.15s, box-shadow 0.15s'
       }}
@@ -172,6 +208,61 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
           padding: '8px 0 0 12px'
         }}
       />
+
+      {/* Agent badge */}
+      {hasAgent && (
+        <AgentBadge status={agentInfo!.status} exited={agentExited} />
+      )}
+    </div>
+  )
+}
+
+// ─── Agent badge overlay ─────────────────────────────────────────
+
+const DOT_COLORS: Record<AgentInfo['status'], string> = {
+  starting: '#FBBF24',
+  active: '#6366F1',
+  idle: '#F59E0B',
+  exited: '#52525B'
+}
+
+function AgentBadge({ status, exited }: { status: AgentInfo['status']; exited: boolean }) {
+  const pulses = status === 'active' || status === 'starting'
+
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        top: 8,
+        right: 12,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 6,
+        padding: '3px 8px',
+        borderRadius: 6,
+        background: 'rgba(0, 0, 0, 0.5)',
+        backdropFilter: 'blur(4px)',
+        pointerEvents: 'none',
+        opacity: exited ? 0.4 : 0.85,
+        transition: 'opacity 0.3s'
+      }}
+    >
+      <div
+        style={{
+          width: 6,
+          height: 6,
+          borderRadius: '50%',
+          background: DOT_COLORS[status],
+          animation: pulses ? 'agent-pulse 1.5s ease-in-out infinite' : 'none'
+        }}
+      />
+      <span style={{ fontSize: 11, color: '#D4D4D8', fontWeight: 500 }}>Claude</span>
+      <style>{`
+        @keyframes agent-pulse {
+          0%, 100% { opacity: 1; transform: scale(1); }
+          50% { opacity: 0.4; transform: scale(0.85); }
+        }
+      `}</style>
     </div>
   )
 }
