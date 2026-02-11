@@ -1,0 +1,19 @@
+appId: com.forge.app
+productName: Forge
+directories:
+  buildResources: build
+  output: dist
+files:
+  - "!**/.vscode/*"
+  - "!src/*"
+  - "!electron.vite.config.*"
+  - "!{.eslintignore,.eslintrc.cjs,.prettierignore,.prettierrc.yaml}"
+  - "!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}"
+mac:
+  target:
+    - target: dmg
+      arch:
+        - arm64
+        - x64
+  entitlementsInherit: build/entitlements.mac.plist
+  artifactName: "${name}-${version}-${arch}.${ext}"
