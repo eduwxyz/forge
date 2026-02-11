@@ -3,10 +3,11 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
+import { useTerminalStore } from '../../stores/useTerminalStore'
 
 interface XTerminalProps {
   id: string
-  isActive: boolean
+  isFocused: boolean
 }
 
 // Terminal theme — dark, warm, easy on the eyes
@@ -35,11 +36,12 @@ const THEME = {
   brightWhite: '#FAFAFA'
 }
 
-export default function XTerminal({ id, isActive }: XTerminalProps) {
+export default function XTerminal({ id, isFocused }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const initialized = useRef(false)
+  const setFocusedPanel = useTerminalStore((s) => s.setFocusedPanel)
 
   useEffect(() => {
     if (!containerRef.current || initialized.current) return
@@ -125,28 +127,51 @@ export default function XTerminal({ id, isActive }: XTerminalProps) {
     }
   }, [id])
 
-  // Re-fit when tab becomes active
+  // Re-fit when panel gains focus or becomes visible
   useEffect(() => {
-    if (isActive && fitAddonRef.current) {
+    if (isFocused && fitAddonRef.current) {
       requestAnimationFrame(() => {
         try {
           fitAddonRef.current?.fit()
+          if (terminalRef.current) {
+            terminalRef.current.focus()
+          }
         } catch {
           // Ignore
         }
       })
     }
-  }, [isActive])
+  }, [isFocused])
+
+  const handleClick = () => {
+    setFocusedPanel(id)
+    terminalRef.current?.focus()
+  }
 
   return (
     <div
-      ref={containerRef}
+      onClick={handleClick}
       style={{
         width: '100%',
         height: '100%',
-        display: isActive ? 'block' : 'none',
-        padding: '8px 0 0 12px'
+        position: 'relative',
+        overflow: 'hidden',
+        borderRadius: 4,
+        border: isFocused
+          ? '1px solid rgba(99, 102, 241, 0.4)'
+          : '1px solid rgba(255, 255, 255, 0.06)',
+        boxShadow: isFocused ? '0 0 12px rgba(99, 102, 241, 0.1)' : 'none',
+        transition: 'border-color 0.15s, box-shadow 0.15s'
       }}
-    />
+    >
+      <div
+        ref={containerRef}
+        style={{
+          width: '100%',
+          height: '100%',
+          padding: '8px 0 0 12px'
+        }}
+      />
+    </div>
   )
 }

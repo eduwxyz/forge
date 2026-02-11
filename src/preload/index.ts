@@ -1,6 +1,12 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-const validChannels = ['pty:data', 'pty:exit']
+const validChannels = [
+  'pty:data',
+  'pty:exit',
+  'terminal:split-horizontal',
+  'terminal:split-vertical',
+  'terminal:close-panel'
+]
 
 contextBridge.exposeInMainWorld('api', {
   pty: {
