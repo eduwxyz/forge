@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import { Plus, X } from 'lucide-react'
-import { useTerminalStore } from './stores/useTerminalStore'
-import XTerminal from './components/terminal/XTerminal'
+import { useTerminalStore, getAllTerminalIds } from './stores/useTerminalStore'
+import PanelTree from './components/terminal/PanelTree'
 
 export default function App() {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
+
+  const activeTab = tabs.find((t) => t.id === activeTabId)
 
   // Create first terminal on mount
   useEffect(() => {
@@ -13,14 +15,58 @@ export default function App() {
     }
   }, [])
 
-  // Keyboard shortcut: Cmd+T for new tab, Cmd+W to close
+  // Listen for IPC-driven shortcuts from main process
+  useEffect(() => {
+    const unsubs: (() => void)[] = []
+
+    unsubs.push(
+      window.api.on('terminal:split-horizontal', () => {
+        const store = useTerminalStore.getState()
+        const tab = store.tabs.find((t) => t.id === store.activeTabId)
+        if (tab) {
+          store.splitPanel(tab.focusedPanelId, 'horizontal')
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.on('terminal:split-vertical', () => {
+        const store = useTerminalStore.getState()
+        const tab = store.tabs.find((t) => t.id === store.activeTabId)
+        if (tab) {
+          store.splitPanel(tab.focusedPanelId, 'vertical')
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.on('terminal:close-panel', () => {
+        const store = useTerminalStore.getState()
+        const tab = store.tabs.find((t) => t.id === store.activeTabId)
+        if (!tab) return
+        const terminalIds = getAllTerminalIds(tab.root)
+        if (terminalIds.length <= 1) {
+          // Last panel — don't close if it's the only tab
+          if (store.tabs.length > 1) {
+            store.removeTab(tab.id)
+          }
+        } else {
+          store.closePanel(tab.focusedPanelId)
+        }
+      })
+    )
+
+    return () => unsubs.forEach((u) => u())
+  }, [])
+
+  // Keyboard shortcut: Cmd+T for new tab, Cmd+W to close tab
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === 't') {
         e.preventDefault()
         addTab()
       }
-      if (e.metaKey && e.key === 'w') {
+      if (e.metaKey && !e.shiftKey && e.key === 'w') {
         e.preventDefault()
         if (activeTabId && tabs.length > 1) {
           removeTab(activeTabId)
@@ -57,6 +103,7 @@ export default function App() {
         >
           {tabs.map((tab) => {
             const isActive = tab.id === activeTabId
+            const panelCount = getAllTerminalIds(tab.root).length
             return (
               <button
                 key={tab.id}
@@ -98,6 +145,19 @@ export default function App() {
                 >
                   {tab.title}
                 </span>
+                {panelCount > 1 && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: 'var(--color-text-tertiary)',
+                      background: 'rgba(255,255,255,0.06)',
+                      padding: '1px 5px',
+                      borderRadius: 4
+                    }}
+                  >
+                    {panelCount}
+                  </span>
+                )}
                 {tabs.length > 1 && (
                   <div
                     onClick={(e) => {
@@ -147,11 +207,14 @@ export default function App() {
         </button>
       </div>
 
-      {/* Terminal area */}
+      {/* Terminal area — render PanelTree for active tab */}
       <div className="flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
-        {tabs.map((tab) => (
-          <XTerminal key={tab.id} id={tab.id} isActive={tab.id === activeTabId} />
-        ))}
+        {activeTab && (
+          <PanelTree
+            node={activeTab.root}
+            focusedPanelId={activeTab.focusedPanelId}
+          />
+        )}
       </div>
     </div>
   )

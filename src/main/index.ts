@@ -36,6 +36,33 @@ function createWindow() {
     shell.openExternal(url)
     return { action: 'deny' }
   })
+
+  // Capture keyboard shortcuts before Chromium processes them
+  mainWindow.webContents.on('before-input-event', (_event, input) => {
+    if (!input.meta && !input.control) return
+    if (input.type !== 'keyDown') return
+
+    // Cmd+/ → split horizontal
+    if (input.key === '/' && !input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('terminal:split-horizontal')
+      return
+    }
+
+    // Cmd+Shift+\ → split vertical
+    if (input.key === '\\' && input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('terminal:split-vertical')
+      return
+    }
+
+    // Cmd+Shift+W → close panel
+    if ((input.key === 'W' || input.key === 'w') && input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('terminal:close-panel')
+      return
+    }
+  })
 }
 
 // --- IPC Handlers ---

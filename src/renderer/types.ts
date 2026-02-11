@@ -1,8 +1,30 @@
+// === Panel tree types ===
+
+export interface TerminalPanel {
+  type: 'terminal'
+  id: string // unique panel id, also used as PTY id
+}
+
+export interface SplitPanel {
+  type: 'split'
+  id: string
+  direction: 'horizontal' | 'vertical'
+  first: PanelNode
+  second: PanelNode
+  ratio: number // 0-1, divider position
+}
+
+export type PanelNode = TerminalPanel | SplitPanel
+
 export interface TerminalTab {
   id: string
   title: string
   cwd: string
+  root: PanelNode
+  focusedPanelId: string
 }
+
+// === Window API ===
 
 declare global {
   interface Window {
