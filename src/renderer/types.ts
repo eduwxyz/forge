@@ -7,12 +7,35 @@ export interface AgentInfo {
   status: AgentStatus
 }
 
+// === Orchestrator types ===
+
+export type TaskStatus = 'pending' | 'assigned' | 'running' | 'completed' | 'failed' | 'blocked'
+
+export interface OrchestratorTask {
+  id: string
+  title: string
+  prompt: string
+  dependsOn: string[]
+  status: TaskStatus
+  panelId: string | null
+}
+
+export interface OrchestratorSession {
+  id: string
+  idea: string
+  status: 'idle' | 'decomposing' | 'running' | 'completed' | 'failed'
+  error?: string
+  totalCost: number
+}
+
 // === Panel tree types ===
 
 export interface TerminalPanel {
   type: 'terminal'
   id: string // unique panel id, also used as PTY id
   agent?: AgentInfo // undefined = shell normal
+  taskId?: string
+  taskPrompt?: string
 }
 
 export interface SplitPanel {
@@ -44,6 +67,13 @@ declare global {
         write: (id: string, data: string) => Promise<void>
         resize: (id: string, cols: number, rows: number) => Promise<void>
         close: (id: string) => Promise<void>
+      }
+      orchestrator: {
+        submitIdea: (idea: string, cwd: string) => Promise<void>
+        taskCompleted: (taskId: string, panelId: string) => Promise<void>
+        taskRunning: (taskId: string, panelId: string) => Promise<void>
+        taskFailed: (taskId: string, panelId: string, reason?: string) => Promise<void>
+        cancel: () => Promise<void>
       }
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void
     }
