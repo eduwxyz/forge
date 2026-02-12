@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron'
 import { query } from '@anthropic-ai/claude-code'
 import { parseTasksFromResponse } from './parser'
+import { addSessionToProject, listProjects as listAllProjects } from './projectStore'
 
 const MAX_CONCURRENT = 3
 const TASK_TIMEOUT_MS = 15 * 60 * 1000
@@ -29,6 +30,8 @@ export function createOrchestrator(mainWindow: BrowserWindow) {
   let tasks: TaskState[] = []
   let abortController: AbortController | null = null
   let sessionCwd: string = process.env.HOME || '/'
+  let currentProjectId: string | undefined
+  let sessionStartedAt: string | undefined
 
   setInterval(() => {
     if (!session || session.status !== 'running') return
@@ -116,19 +119,48 @@ export function createOrchestrator(mainWindow: BrowserWindow) {
     if (failedCount > 0 || blockedCount > 0) {
       session.status = 'failed'
       session.error = `${failedCount} failed, ${blockedCount} blocked`
+      persistSession('failed')
       emitSession()
       send('orchestrator:error', session.error)
       return
     }
 
     session.status = 'completed'
+    persistSession('completed')
     emitSession()
     send('orchestrator:complete', null)
   }
 
-  async function start(idea: string, cwd: string) {
+  function persistSession(status: 'completed' | 'failed') {
+    if (!currentProjectId || !session || !sessionStartedAt) return
+
+    const sessionRecord = {
+      id: session.id,
+      idea: session.idea,
+      status,
+      totalCost: session.totalCost,
+      startedAt: sessionStartedAt,
+      finishedAt: new Date().toISOString(),
+      tasks: tasks.filter((t) => t.status === 'completed' || t.status === 'failed' || t.status === 'blocked').map((t) => ({
+        id: t.id,
+        title: t.title,
+        prompt: t.prompt,
+        dependsOn: t.dependsOn,
+        status: t.status as 'completed' | 'failed' | 'blocked'
+      }))
+    }
+
+    addSessionToProject(currentProjectId, sessionRecord)
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('project:list-updated', listAllProjects())
+    }
+  }
+
+  async function start(idea: string, cwd: string, projectId?: string) {
     abortController = new AbortController()
     sessionCwd = cwd
+    currentProjectId = projectId
+    sessionStartedAt = new Date().toISOString()
 
     session = {
       id: crypto.randomUUID(),

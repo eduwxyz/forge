@@ -2,10 +2,12 @@ import { Component, useEffect, type ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import { useTerminalStore, getAllTerminalIds, findNode } from './stores/useTerminalStore'
 import { useOrchestratorStore } from './stores/useOrchestratorStore'
+import { useProjectStore } from './stores/useProjectStore'
 import PanelTree from './components/terminal/PanelTree'
 import OrchestratorInput from './components/orchestrator/OrchestratorInput'
 import TaskDashboard from './components/orchestrator/TaskDashboard'
-import type { AgentType, OrchestratorSession, OrchestratorTask, PanelNode, TerminalPanel } from './types'
+import ProjectSidebar from './components/sidebar/ProjectSidebar'
+import type { AgentType, OrchestratorSession, OrchestratorTask, PanelNode, Project, TerminalPanel } from './types'
 
 // ─── Error Boundary ──────────────────────────────────────────────
 
@@ -61,6 +63,18 @@ export default function App() {
 function AppInner() {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
 
+  // Load projects on mount + listen for updates
+  useEffect(() => {
+    useProjectStore.getState().loadProjects()
+
+    const unsub = window.api.on('project:list-updated', (...args: unknown[]) => {
+      const projects = args[0] as Project[]
+      useProjectStore.getState()._setProjects(projects)
+    })
+
+    return unsub
+  }, [])
+
   // Create first terminal on mount
   useEffect(() => {
     if (tabs.length === 0) {
@@ -113,6 +127,12 @@ function AppInner() {
       window.api.on('terminal:spawn-agent', (...args: unknown[]) => {
         const agentType = (args[0] as AgentType) || 'claude'
         useTerminalStore.getState().addAgentTab(agentType)
+      })
+    )
+
+    unsubs.push(
+      window.api.on('sidebar:toggle', () => {
+        useProjectStore.getState().toggleSidebar()
       })
     )
 
@@ -342,8 +362,11 @@ function AppInner() {
         </button>
       </div>
 
-      {/* Terminal area + dashboard */}
+      {/* Sidebar + Terminal area + dashboard */}
       <div className="flex-1 flex" style={{ overflow: 'hidden' }}>
+        {/* Project sidebar */}
+        <ProjectSidebar />
+
         {/* Terminal area */}
         <div className="flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
           {tabs.map((tab) => {

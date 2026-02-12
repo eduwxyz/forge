@@ -12,7 +12,9 @@ const validChannels = [
   'orchestrator:assign-tasks',
   'orchestrator:complete',
   'orchestrator:error',
-  'orchestrator:toggle-input'
+  'orchestrator:toggle-input',
+  'project:list-updated',
+  'sidebar:toggle'
 ]
 
 contextBridge.exposeInMainWorld('api', {
@@ -37,6 +39,22 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('orchestrator:task-failed', { taskId, panelId, reason }),
     cancel: () =>
       ipcRenderer.invoke('orchestrator:cancel')
+  },
+  project: {
+    list: () =>
+      ipcRenderer.invoke('project:list'),
+    get: (id: string) =>
+      ipcRenderer.invoke('project:get', { id }),
+    create: (name: string, path: string) =>
+      ipcRenderer.invoke('project:create', { name, path }),
+    update: (id: string, data: Record<string, unknown>) =>
+      ipcRenderer.invoke('project:update', { id, data }),
+    delete: (id: string) =>
+      ipcRenderer.invoke('project:delete', { id })
+  },
+  dialog: {
+    openFolder: () =>
+      ipcRenderer.invoke('dialog:open-folder') as Promise<string | null>
   },
   on: (channel: string, callback: (...args: unknown[]) => void) => {
     if (!validChannels.includes(channel)) return () => {}
