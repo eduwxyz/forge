@@ -38,6 +38,32 @@ const THEME = {
   brightWhite: '#FAFAFA'
 }
 
+const ANSI_RE = /\x1b\[[0-9;]*[A-Za-z]|\x1b\].*?\x07|\x1b\[[\?]?[0-9;]*[hlm]/g
+const MARKER_BUFFER_MAX = 4000
+
+function buildTaskPromptWithProtocol(taskPrompt: string, taskId: string): string {
+  return `${taskPrompt.trim()}
+
+Important output protocol (mandatory):
+- When the task is fully complete, print exactly this line format:
+  FORGE_TASK_DONE:<task_id>
+- If you cannot complete it, print exactly this line format:
+  FORGE_TASK_FAIL:<task_id>:<short reason>
+- Print markers as plain text on their own line (no backticks).
+- Use this task_id value: ${taskId}
+`
+}
+
+function buildTaskLaunchCommand(taskPrompt: string, taskId: string): string {
+  const prompt = buildTaskPromptWithProtocol(taskPrompt, taskId).replace(/\r/g, '')
+  return `FORGE_PROMPT=$(cat <<'FORGE_EOF'
+${prompt}
+FORGE_EOF
+)
+claude --dangerously-skip-permissions "$FORGE_PROMPT"
+`
+}
+
 export default function XTerminal({ id, isFocused }: XTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -47,11 +73,23 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
   const setFocusedPanel = useTerminalStore((s) => s.setFocusedPanel)
   const setAgentInfo = useTerminalStore((s) => s.setAgentInfo)
 
+  const taskOutcomeNotified = useRef(false)
+  const markerBuffer = useRef('')
+
   // Read agent info for this panel from the store
   const agentInfo = useTerminalStore((s) => {
     for (const tab of s.tabs) {
       const node = findNode(tab.root, id)
       if (node && node.type === 'terminal') return (node as TerminalPanel).agent ?? null
+    }
+    return null
+  })
+
+  // Read task ID for this panel (stable primitive value — no new object per render)
+  const taskId = useTerminalStore((s) => {
+    for (const tab of s.tabs) {
+      const node = findNode(tab.root, id)
+      if (node && node.type === 'terminal') return (node as TerminalPanel).taskId ?? null
     }
     return null
   })
@@ -92,15 +130,51 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
 
-    // Create PTY with terminal dimensions
-    window.api.pty.create(id, terminal.cols, terminal.rows)
+    const cols = Math.max(terminal.cols, 80)
+    const rows = Math.max(terminal.rows, 24)
+
+    // Create PTY with terminal dimensions + cwd from parent tab
+    const currentState = useTerminalStore.getState()
+    let panelCwd: string | undefined
+    for (const tab of currentState.tabs) {
+      const node = findNode(tab.root, id)
+      if (node) {
+        panelCwd = tab.cwd
+        break
+      }
+    }
+    window.api.pty.create(id, cols, rows, panelCwd)
+
+    const getPanelTaskMeta = (): { taskId: string | null; taskPrompt: string | null } => {
+      const state = useTerminalStore.getState()
+      for (const tab of state.tabs) {
+        const node = findNode(tab.root, id)
+        if (node && node.type === 'terminal') {
+          const panel = node as TerminalPanel
+          return {
+            taskId: panel.taskId ?? null,
+            taskPrompt: panel.taskPrompt ?? null
+          }
+        }
+      }
+      return { taskId: null, taskPrompt: null }
+    }
 
     // Auto-launch agent if panel has agent set
-    const currentState = useTerminalStore.getState()
     for (const tab of currentState.tabs) {
       const node = findNode(tab.root, id)
       if (node && node.type === 'terminal' && (node as TerminalPanel).agent) {
-        setTimeout(() => window.api.pty.write(id, 'claude\n'), 300)
+        const panel = node as TerminalPanel
+        if (panel.taskId && panel.taskPrompt) {
+          const cmd = buildTaskLaunchCommand(panel.taskPrompt, panel.taskId)
+          setTimeout(() => {
+            setAgentInfo(id, { type: 'claude', status: 'active' })
+            window.api.orchestrator.taskRunning(panel.taskId, id)
+            window.api.pty.write(id, cmd)
+          }, 250)
+        } else {
+          setTimeout(() => window.api.pty.write(id, 'claude\n'), 500)
+        }
         break
       }
     }
@@ -114,7 +188,36 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
     const unsubData = window.api.on('pty:data', (...args: unknown[]) => {
       const event = args[0] as { id: string; data: string }
       if (event.id === id) {
+        const { taskId: panelTaskId } = getPanelTaskMeta()
         terminal.write(event.data)
+
+        if (panelTaskId && !taskOutcomeNotified.current) {
+          const cleanChunk = event.data.replace(ANSI_RE, '')
+          markerBuffer.current = (markerBuffer.current + cleanChunk).slice(-MARKER_BUFFER_MAX)
+
+          const doneNeedle = `FORGE_TASK_DONE:${panelTaskId}`
+          const failNeedle = `FORGE_TASK_FAIL:${panelTaskId}`
+          const doneIdx = markerBuffer.current.indexOf(doneNeedle)
+          const failIdx = markerBuffer.current.indexOf(failNeedle)
+
+          if (doneIdx !== -1) {
+            taskOutcomeNotified.current = true
+            window.api.orchestrator.taskCompleted(panelTaskId, id)
+          } else if (failIdx !== -1) {
+            const reason = markerBuffer.current
+              .slice(failIdx + failNeedle.length)
+              .replace(/^:/, '')
+              .split(/\r?\n/)[0]
+              .trim()
+            taskOutcomeNotified.current = true
+            window.api.orchestrator.taskFailed(
+              panelTaskId,
+              id,
+              reason || 'Task reported failure'
+            )
+          }
+        }
+
         const change = detectorRef.current.feed(event.data)
         if (change) {
           useTerminalStore.getState().setAgentInfo(id, change)
@@ -126,6 +229,15 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
       const event = args[0] as { id: string; exitCode: number }
       if (event.id === id) {
         terminal.write('\r\n\x1b[90m[Process exited]\x1b[0m\r\n')
+        const { taskId: panelTaskId } = getPanelTaskMeta()
+        if (panelTaskId && !taskOutcomeNotified.current) {
+          taskOutcomeNotified.current = true
+          window.api.orchestrator.taskFailed(
+            panelTaskId,
+            id,
+            `Agent exited with code ${event.exitCode} before completion marker`
+          )
+        }
       }
     })
 
@@ -211,7 +323,11 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
 
       {/* Agent badge */}
       {hasAgent && (
-        <AgentBadge status={agentInfo!.status} exited={agentExited} />
+        <AgentBadge
+          status={agentInfo!.status}
+          exited={agentExited}
+          taskTitle={taskId || undefined}
+        />
       )}
     </div>
   )
@@ -226,7 +342,7 @@ const DOT_COLORS: Record<AgentInfo['status'], string> = {
   exited: '#52525B'
 }
 
-function AgentBadge({ status, exited }: { status: AgentInfo['status']; exited: boolean }) {
+function AgentBadge({ status, exited, taskTitle }: { status: AgentInfo['status']; exited: boolean; taskTitle?: string }) {
   const pulses = status === 'active' || status === 'starting'
 
   return (
@@ -256,7 +372,9 @@ function AgentBadge({ status, exited }: { status: AgentInfo['status']; exited: b
           animation: pulses ? 'agent-pulse 1.5s ease-in-out infinite' : 'none'
         }}
       />
-      <span style={{ fontSize: 11, color: '#D4D4D8', fontWeight: 500 }}>Claude</span>
+      <span style={{ fontSize: 11, color: '#D4D4D8', fontWeight: 500 }}>
+        {taskTitle ? `Task ${taskTitle}` : 'Claude'}
+      </span>
       <style>{`
         @keyframes agent-pulse {
           0%, 100% { opacity: 1; transform: scale(1); }

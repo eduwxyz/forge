@@ -58,6 +58,8 @@ interface TerminalState {
 
   setAgentInfo: (panelId: string, agent: AgentInfo) => void
   addAgentTab: (agentType: AgentType, cwd?: string) => TerminalTab
+  addTaskTab: (taskId: string, taskTitle: string, taskPrompt: string, cwd?: string) => TerminalTab
+  addTaskTabs: (tasks: Array<{ id: string; title: string; prompt: string }>, cwd?: string) => void
 }
 
 function makeTerminalPanel(): TerminalPanel {
@@ -229,5 +231,52 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       activeTabId: tab.id
     }))
     return tab
+  },
+
+  addTaskTab: (taskId, taskTitle, taskPrompt, cwd?) => {
+    const panel: TerminalPanel = {
+      type: 'terminal',
+      id: crypto.randomUUID(),
+      agent: { type: 'claude', status: 'starting' },
+      taskId,
+      taskPrompt
+    }
+    const tab: TerminalTab = {
+      id: crypto.randomUUID(),
+      title: taskTitle,
+      cwd: cwd || '~',
+      root: panel,
+      focusedPanelId: panel.id
+    }
+    set((state) => ({
+      tabs: [...state.tabs, tab],
+      activeTabId: tab.id
+    }))
+    return tab
+  },
+
+  addTaskTabs: (tasks, cwd?) => {
+    const newTabs: TerminalTab[] = tasks.map((t) => {
+      const panel: TerminalPanel = {
+        type: 'terminal',
+        id: crypto.randomUUID(),
+        agent: { type: 'claude', status: 'starting' },
+        taskId: t.id,
+        taskPrompt: t.prompt
+      }
+      return {
+        id: crypto.randomUUID(),
+        title: t.title,
+        cwd: cwd || '~',
+        root: panel,
+        focusedPanelId: panel.id
+      }
+    })
+    if (newTabs.length === 0) return
+    // Single set() call — one re-render
+    set((state) => ({
+      tabs: [...state.tabs, ...newTabs],
+      activeTabId: newTabs[0].id
+    }))
   }
 }))
