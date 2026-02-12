@@ -1,8 +1,10 @@
 import { app, BrowserWindow, ipcMain, shell } from 'electron'
 import path from 'path'
 import { createPty, writePty, resizePty, closePty, closeAllPty } from './pty'
+import { createOrchestrator } from './orchestrator'
 
 let mainWindow: BrowserWindow | null = null
+let orchestrator: ReturnType<typeof createOrchestrator> | null = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -69,7 +71,16 @@ function createWindow() {
       mainWindow?.webContents.send('terminal:spawn-agent', 'claude')
       return
     }
+
+    // Cmd+Shift+O → toggle orchestrator input
+    if ((input.key === 'O' || input.key === 'o') && input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('orchestrator:toggle-input')
+      return
+    }
   })
+
+  orchestrator = createOrchestrator(mainWindow)
 }
 
 // --- IPC Handlers ---
@@ -90,6 +101,34 @@ ipcMain.handle('pty:resize', (_event, { id, cols, rows }) => {
 
 ipcMain.handle('pty:close', (_event, { id }) => {
   closePty(id)
+})
+
+// --- Orchestrator IPC ---
+
+ipcMain.handle('orchestrator:submit-idea', (_event, { idea, cwd }) => {
+  if (!orchestrator) return
+  const resolvedCwd = (!cwd || cwd === '~') ? (process.env.HOME || '/') : cwd
+  orchestrator.start(idea, resolvedCwd)
+})
+
+ipcMain.handle('orchestrator:task-completed', (_event, { taskId, panelId }) => {
+  if (!orchestrator) return
+  orchestrator.onTaskCompleted(taskId, panelId)
+})
+
+ipcMain.handle('orchestrator:task-running', (_event, { taskId, panelId }) => {
+  if (!orchestrator) return
+  orchestrator.onTaskRunning(taskId, panelId)
+})
+
+ipcMain.handle('orchestrator:task-failed', (_event, { taskId, panelId, reason }) => {
+  if (!orchestrator) return
+  orchestrator.onTaskFailed(taskId, panelId, reason)
+})
+
+ipcMain.handle('orchestrator:cancel', () => {
+  if (!orchestrator) return
+  orchestrator.cancel()
 })
 
 // --- App lifecycle ---
