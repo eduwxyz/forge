@@ -1,8 +1,46 @@
-import { useEffect } from 'react'
+import { Component, useEffect, type ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import { useTerminalStore, getAllTerminalIds, findNode } from './stores/useTerminalStore'
+import { useOrchestratorStore } from './stores/useOrchestratorStore'
 import PanelTree from './components/terminal/PanelTree'
-import type { AgentType, PanelNode, TerminalPanel } from './types'
+import OrchestratorInput from './components/orchestrator/OrchestratorInput'
+import TaskDashboard from './components/orchestrator/TaskDashboard'
+import type { AgentType, OrchestratorSession, OrchestratorTask, PanelNode, TerminalPanel } from './types'
+
+// ─── Error Boundary ──────────────────────────────────────────────
+
+class ErrorBoundary extends Component<{ children: ReactNode }, { error: Error | null }> {
+  state = { error: null as Error | null }
+
+  static getDerivedStateFromError(error: Error) {
+    return { error }
+  }
+
+  componentDidCatch(error: Error, info: { componentStack?: string | null }) {
+    console.error('[ErrorBoundary]', error, info.componentStack)
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, color: '#F87171', fontFamily: 'monospace', fontSize: 13, background: '#0D0F12', height: '100%' }}>
+          <h2 style={{ color: '#D4D4D8', marginBottom: 12 }}>Something crashed</h2>
+          <pre style={{ whiteSpace: 'pre-wrap', color: '#FCA5A5' }}>{this.state.error.message}</pre>
+          <pre style={{ whiteSpace: 'pre-wrap', color: '#71717A', marginTop: 8, fontSize: 11 }}>{this.state.error.stack}</pre>
+          <button
+            onClick={() => this.setState({ error: null })}
+            style={{ marginTop: 20, padding: '8px 16px', background: '#6366F1', color: '#fff', border: 'none', borderRadius: 6, cursor: 'pointer' }}
+          >
+            Try again
+          </button>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+// ─── App ─────────────────────────────────────────────────────────
 
 function hasActiveAgent(root: PanelNode): boolean {
   if (root.type === 'terminal') {
@@ -13,9 +51,15 @@ function hasActiveAgent(root: PanelNode): boolean {
 }
 
 export default function App() {
-  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
+  return (
+    <ErrorBoundary>
+      <AppInner />
+    </ErrorBoundary>
+  )
+}
 
-  const activeTab = tabs.find((t) => t.id === activeTabId)
+function AppInner() {
+  const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
 
   // Create first terminal on mount
   useEffect(() => {
@@ -75,6 +119,73 @@ export default function App() {
     return () => unsubs.forEach((u) => u())
   }, [])
 
+  // Listen for orchestrator IPC events
+  useEffect(() => {
+    const unsubs: (() => void)[] = []
+
+    unsubs.push(
+      window.api.on('orchestrator:toggle-input', () => {
+        useOrchestratorStore.getState().toggleInput()
+      })
+    )
+
+    unsubs.push(
+      window.api.on('orchestrator:session-update', (...args: unknown[]) => {
+        try {
+          const session = args[0] as OrchestratorSession | null
+          setTimeout(() => useOrchestratorStore.getState()._setSession(session), 0)
+        } catch (err) {
+          console.error('[Orchestrator] session-update error:', err)
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.on('orchestrator:tasks-update', (...args: unknown[]) => {
+        try {
+          const tasks = args[0] as OrchestratorTask[]
+          setTimeout(() => useOrchestratorStore.getState()._setTasks(tasks || []), 0)
+        } catch (err) {
+          console.error('[Orchestrator] tasks-update error:', err)
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.on('orchestrator:assign-tasks', (...args: unknown[]) => {
+        try {
+          const payload = args[0] as {
+            tasks: Array<{ id: string; title: string; prompt: string }>
+            cwd: string
+          }
+          const tasksToAssign = payload.tasks
+          const cwd = payload.cwd
+          if (!Array.isArray(tasksToAssign) || tasksToAssign.length === 0) return
+          setTimeout(() => {
+            useTerminalStore.getState().addTaskTabs(tasksToAssign, cwd)
+          }, 50)
+        } catch (err) {
+          console.error('[Orchestrator] assign-tasks error:', err)
+        }
+      })
+    )
+
+    unsubs.push(
+      window.api.on('orchestrator:complete', () => {
+        // Session completed — store already updated via session-update
+      })
+    )
+
+    unsubs.push(
+      window.api.on('orchestrator:error', (...args: unknown[]) => {
+        const error = args[0] as string
+        console.error('[Orchestrator]', error)
+      })
+    )
+
+    return () => unsubs.forEach((u) => u())
+  }, [])
+
   // Keyboard shortcut: Cmd+T for new tab, Cmd+W to close tab
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -92,6 +203,9 @@ export default function App() {
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [activeTabId, tabs.length])
+
+  const orchestratorSession = useOrchestratorStore((s) => s.session)
+  const showDashboard = orchestratorSession != null
 
   return (
     <div className="h-full flex flex-col" style={{ background: 'var(--color-bg-main)' }}>
@@ -228,14 +342,38 @@ export default function App() {
         </button>
       </div>
 
-      {/* Terminal area — render PanelTree for active tab */}
-      <div className="flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
-        {activeTab && (
-          <PanelTree
-            node={activeTab.root}
-            focusedPanelId={activeTab.focusedPanelId}
-          />
-        )}
+      {/* Terminal area + dashboard */}
+      <div className="flex-1 flex" style={{ overflow: 'hidden' }}>
+        {/* Terminal area */}
+        <div className="flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTabId
+            return (
+              <div
+                key={tab.id}
+                style={{
+                  position: 'absolute',
+                  top: 0,
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  visibility: isActive ? 'visible' : 'hidden',
+                  zIndex: isActive ? 1 : 0
+                }}
+              >
+                <PanelTree
+                  node={tab.root}
+                  focusedPanelId={tab.focusedPanelId}
+                />
+              </div>
+            )
+          })}
+          {/* Orchestrator floating input */}
+          <OrchestratorInput />
+        </div>
+
+        {/* Task dashboard sidebar */}
+        {showDashboard && <TaskDashboard />}
       </div>
     </div>
   )

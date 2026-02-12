@@ -11,7 +11,7 @@ interface PanelTreeProps {
 
 export default function PanelTree({ node, focusedPanelId }: PanelTreeProps) {
   if (node.type === 'terminal') {
-    return <XTerminal id={node.id} isFocused={node.id === focusedPanelId} />
+    return <XTerminal key={node.id} id={node.id} isFocused={node.id === focusedPanelId} />
   }
 
   return <SplitPanelView node={node} focusedPanelId={focusedPanelId} />

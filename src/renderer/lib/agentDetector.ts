@@ -25,9 +25,14 @@ const ACTIVE_PATTERNS = [
 ]
 
 // Idle patterns (prompt waiting for input)
+// Note: after ANSI stripping, cursor positioning is lost so `> ` and
+// the status bar text end up on the same line. We detect idle via
+// Claude Code-specific status bar strings instead.
 const IDLE_PATTERNS = [
   /^>\s*$/m,
-  /❯\s*$/m
+  /❯\s*$/m,
+  /\(shift\+tab to cycle\)/,
+  /bypass permissions/i
 ]
 
 // Shell prompt returned (agent exited)
@@ -60,24 +65,24 @@ export function createDetector() {
     }
 
     // Already detected — track status changes
-    // Check most recent chunk for status signals
-    const recent = buffer.slice(-500)
-
-    for (const pat of ACTIVE_PATTERNS) {
-      if (pat.test(recent)) {
-        return maybeTransition('active')
+    // Use CURRENT CHUNK for idle/exit detection (buffer has broken line
+    // structure from stripped cursor positioning sequences)
+    for (const pat of IDLE_PATTERNS) {
+      if (pat.test(clean)) {
+        return maybeTransition('idle')
       }
     }
 
     for (const pat of EXIT_PATTERNS) {
-      if (pat.test(recent)) {
+      if (pat.test(clean)) {
         return maybeTransition('exited')
       }
     }
 
-    for (const pat of IDLE_PATTERNS) {
-      if (pat.test(recent)) {
-        return maybeTransition('idle')
+    // Active: check current chunk for spinners, buffer for action words
+    for (const pat of ACTIVE_PATTERNS) {
+      if (pat.test(clean)) {
+        return maybeTransition('active')
       }
     }
 
