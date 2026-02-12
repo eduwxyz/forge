@@ -74,7 +74,8 @@ Orquestrador monitora progresso e coordena tasks
 
 ### Fase 3 — Rodar agentes no terminal ✅
 
-- [x] Executar `claude`, `codex`, `gemini` CLI nos painéis
+- [x] Executar `claude`, `codex`,
+ `gemini` CLI nos painéis
 - [x] Detectar quando um agente está rodando (parser de output)
 - [x] Indicador visual de agente ativo por painel
 - [x] Auto-spawn: abrir agente direto num painel novo
