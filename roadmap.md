@@ -92,18 +92,18 @@ Orquestrador monitora progresso e coordena tasks
 - [x] Realocar tasks quando um agente termina (dependency tracking)
 - [x] Dashboard de progresso (tasks pendentes, rodando, concluídas)
 
-### Fase 5 — Project Workspace + Worktrees
+### Fase 5 — Project Workspace + Worktrees ✅
 
-- [ ] Sidebar de projetos (toggle) coexistindo com terminal
-- [ ] Criar novo projeto: `git init` + pasta em `~/Projects/<nome>`
-- [ ] Importar projeto existente (apontar pra repo git)
-- [ ] Git worktrees: cada task do orquestrador roda num worktree isolado
-- [ ] Auto-copy `.env` e arquivos ignorados pro worktree
-- [ ] Persistência de workspaces em disco (JSON em `~/.forge/`)
-- [ ] Listar projetos recentes na sidebar com status (running/paused/done)
-- [ ] Retomar workspace anterior (reabrir projeto com histórico de tasks)
-- [ ] Welcome state quando não há projetos abertos
-- [ ] Settings básico (shell, tema, terminal font size)
+- [x] Sidebar de projetos (toggle) coexistindo com terminal
+- [x] Criar novo projeto: `git init` + pasta em `~/Projects/<nome>`
+- [x] Importar projeto existente (apontar pra repo git)
+- [x] Git worktrees: cada task do orquestrador roda num worktree isolado
+- [x] Auto-copy `.env` e arquivos ignorados pro worktree
+- [x] Persistência de workspaces em disco (JSON em `~/.forge/`)
+- [x] Listar projetos recentes na sidebar com status (running/paused/done)
+- [x] Retomar workspace anterior (reabrir projeto com histórico de tasks)
+- [x] Welcome state quando não há projetos abertos
+- [x] Settings básico (shell, tema, terminal font size)
 
 ### Fase 6 — Plan & Brainstorm
 

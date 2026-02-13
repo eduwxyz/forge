@@ -5,36 +5,45 @@ interface ProjectState {
   projects: Project[]
   activeProjectId: string | null
   loading: boolean
+  loaded: boolean
   sidebarOpen: boolean
 
   loadProjects: () => Promise<void>
   createProject: (name: string, path: string) => Promise<Project>
+  createNewProject: (name: string) => Promise<Project>
   updateProject: (id: string, data: Partial<Pick<Project, 'name' | 'status'>>) => Promise<void>
   deleteProject: (id: string) => Promise<void>
   setActiveProject: (id: string | null) => void
   toggleSidebar: () => void
+  getActiveCwd: () => string | undefined
   _setProjects: (projects: Project[]) => void
 }
 
-export const useProjectStore = create<ProjectState>((set) => ({
+export const useProjectStore = create<ProjectState>((set, get) => ({
   projects: [],
   activeProjectId: null,
   loading: false,
+  loaded: false,
   sidebarOpen: false,
 
   loadProjects: async () => {
     set({ loading: true })
     try {
       const projects = await window.api.project.list()
-      set({ projects, loading: false })
+      set({ projects, loading: false, loaded: true })
     } catch (err) {
       console.error('[ProjectStore] loadProjects failed:', err)
-      set({ loading: false })
+      set({ loading: false, loaded: true })
     }
   },
 
   createProject: async (name, path) => {
     const project = await window.api.project.create(name, path)
+    return project
+  },
+
+  createNewProject: async (name) => {
+    const project = await window.api.project.createNew(name)
     return project
   },
 
@@ -55,6 +64,13 @@ export const useProjectStore = create<ProjectState>((set) => ({
 
   toggleSidebar: () => {
     set((s) => ({ sidebarOpen: !s.sidebarOpen }))
+  },
+
+  getActiveCwd: () => {
+    const { projects, activeProjectId } = get()
+    if (!activeProjectId) return undefined
+    const project = projects.find((p) => p.id === activeProjectId)
+    return project?.path
   },
 
   _setProjects: (projects) => {

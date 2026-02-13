@@ -1,6 +1,7 @@
 import fs from 'fs'
 import path from 'path'
 import crypto from 'crypto'
+import { execSync } from 'child_process'
 
 interface ProjectTaskRecord {
   id: string
@@ -108,6 +109,25 @@ export function deleteProject(id: string): void {
   const store = readStore()
   store.projects = store.projects.filter((p) => p.id !== id)
   writeStore(store)
+}
+
+const DEFAULT_PROJECTS_DIR = path.join(process.env.HOME || '/', 'Projects')
+
+export function createNewProject(name: string): Project {
+  // Ensure ~/Projects exists
+  if (!fs.existsSync(DEFAULT_PROJECTS_DIR)) {
+    fs.mkdirSync(DEFAULT_PROJECTS_DIR, { recursive: true })
+  }
+
+  const projectPath = path.join(DEFAULT_PROJECTS_DIR, name)
+  if (fs.existsSync(projectPath)) {
+    throw new Error(`Directory already exists: ${projectPath}`)
+  }
+
+  fs.mkdirSync(projectPath, { recursive: true })
+  execSync('git init', { cwd: projectPath, stdio: 'ignore' })
+
+  return createProject(name, projectPath)
 }
 
 export function addSessionToProject(

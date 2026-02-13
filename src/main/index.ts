@@ -6,9 +6,11 @@ import {
   listProjects,
   getProject,
   createProject,
+  createNewProject,
   updateProject,
   deleteProject
 } from './projectStore'
+import { getSettings, updateSettings } from './settingsStore'
 
 let mainWindow: BrowserWindow | null = null
 let orchestrator: ReturnType<typeof createOrchestrator> | null = null
@@ -102,7 +104,8 @@ function createWindow() {
 ipcMain.handle('pty:create', (_event, { id, cols, rows, cwd }) => {
   if (!mainWindow) return
   const resolvedCwd = (!cwd || cwd === '~') ? (process.env.HOME || '/') : cwd
-  createPty(id, cols, rows, resolvedCwd, mainWindow)
+  const settings = getSettings()
+  createPty(id, cols, rows, resolvedCwd, mainWindow, settings.shell)
 })
 
 ipcMain.handle('pty:write', (_event, { id, data }) => {
@@ -139,6 +142,12 @@ ipcMain.handle('project:create', (_event, { name, path }) => {
   return project
 })
 
+ipcMain.handle('project:create-new', (_event, { name }) => {
+  const project = createNewProject(name)
+  broadcastProjects()
+  return project
+})
+
 ipcMain.handle('project:update', (_event, { id, data }) => {
   const project = updateProject(id, data)
   broadcastProjects()
@@ -148,6 +157,20 @@ ipcMain.handle('project:update', (_event, { id, data }) => {
 ipcMain.handle('project:delete', (_event, { id }) => {
   deleteProject(id)
   broadcastProjects()
+})
+
+// --- Settings IPC ---
+
+ipcMain.handle('settings:get', () => {
+  return getSettings()
+})
+
+ipcMain.handle('settings:update', (_event, { data }) => {
+  const updated = updateSettings(data)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('settings:changed', updated)
+  }
+  return updated
 })
 
 // --- Dialog IPC ---

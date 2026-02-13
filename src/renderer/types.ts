@@ -89,6 +89,14 @@ export interface TerminalTab {
   focusedPanelId: string
 }
 
+// === Settings types ===
+
+export interface AppSettings {
+  shell: string
+  fontSize: number
+  theme: 'dark'
+}
+
 // === Window API ===
 
 declare global {
@@ -111,8 +119,13 @@ declare global {
         list: () => Promise<Project[]>
         get: (id: string) => Promise<Project | null>
         create: (name: string, path: string) => Promise<Project>
+        createNew: (name: string) => Promise<Project>
         update: (id: string, data: Partial<Pick<Project, 'name' | 'status'>>) => Promise<Project | null>
         delete: (id: string) => Promise<void>
+      }
+      settings: {
+        get: () => Promise<AppSettings>
+        update: (data: Partial<AppSettings>) => Promise<AppSettings>
       }
       dialog: {
         openFolder: () => Promise<string | null>

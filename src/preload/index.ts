@@ -14,7 +14,8 @@ const validChannels = [
   'orchestrator:error',
   'orchestrator:toggle-input',
   'project:list-updated',
-  'sidebar:toggle'
+  'sidebar:toggle',
+  'settings:changed'
 ]
 
 contextBridge.exposeInMainWorld('api', {
@@ -47,10 +48,18 @@ contextBridge.exposeInMainWorld('api', {
       ipcRenderer.invoke('project:get', { id }),
     create: (name: string, path: string) =>
       ipcRenderer.invoke('project:create', { name, path }),
+    createNew: (name: string) =>
+      ipcRenderer.invoke('project:create-new', { name }),
     update: (id: string, data: Record<string, unknown>) =>
       ipcRenderer.invoke('project:update', { id, data }),
     delete: (id: string) =>
       ipcRenderer.invoke('project:delete', { id })
+  },
+  settings: {
+    get: () =>
+      ipcRenderer.invoke('settings:get'),
+    update: (data: Record<string, unknown>) =>
+      ipcRenderer.invoke('settings:update', { data })
   },
   dialog: {
     openFolder: () =>
