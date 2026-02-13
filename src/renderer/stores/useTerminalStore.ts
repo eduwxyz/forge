@@ -59,7 +59,7 @@ interface TerminalState {
   setAgentInfo: (panelId: string, agent: AgentInfo) => void
   addAgentTab: (agentType: AgentType, cwd?: string) => TerminalTab
   addTaskTab: (taskId: string, taskTitle: string, taskPrompt: string, cwd?: string) => TerminalTab
-  addTaskTabs: (tasks: Array<{ id: string; title: string; prompt: string }>, cwd?: string) => void
+  addTaskTabs: (tasks: Array<{ id: string; title: string; prompt: string; cwd?: string }>) => void
 }
 
 function makeTerminalPanel(): TerminalPanel {
@@ -255,7 +255,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     return tab
   },
 
-  addTaskTabs: (tasks, cwd?) => {
+  addTaskTabs: (tasks) => {
     const newTabs: TerminalTab[] = tasks.map((t) => {
       const panel: TerminalPanel = {
         type: 'terminal',
@@ -267,7 +267,7 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
       return {
         id: crypto.randomUUID(),
         title: t.title,
-        cwd: cwd || '~',
+        cwd: t.cwd || '~',
         root: panel,
         focusedPanelId: panel.id
       }

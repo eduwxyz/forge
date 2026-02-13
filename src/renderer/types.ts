@@ -1,3 +1,35 @@
+// === Project types ===
+
+export type ProjectStatus = 'active' | 'archived'
+
+export interface ProjectTaskRecord {
+  id: string
+  title: string
+  prompt: string
+  dependsOn: string[]
+  status: 'completed' | 'failed' | 'blocked'
+}
+
+export interface ProjectSessionRecord {
+  id: string
+  idea: string
+  status: 'completed' | 'failed'
+  totalCost: number
+  startedAt: string
+  finishedAt: string
+  tasks: ProjectTaskRecord[]
+}
+
+export interface Project {
+  id: string
+  name: string
+  path: string
+  status: ProjectStatus
+  createdAt: string
+  updatedAt: string
+  sessions: ProjectSessionRecord[]
+}
+
 // === Agent types ===
 
 export type AgentType = 'claude' // futuro: | 'codex' | 'gemini'
@@ -57,6 +89,14 @@ export interface TerminalTab {
   focusedPanelId: string
 }
 
+// === Settings types ===
+
+export interface AppSettings {
+  shell: string
+  fontSize: number
+  theme: 'dark'
+}
+
 // === Window API ===
 
 declare global {
@@ -74,6 +114,21 @@ declare global {
         taskRunning: (taskId: string, panelId: string) => Promise<void>
         taskFailed: (taskId: string, panelId: string, reason?: string) => Promise<void>
         cancel: () => Promise<void>
+      }
+      project: {
+        list: () => Promise<Project[]>
+        get: (id: string) => Promise<Project | null>
+        create: (name: string, path: string) => Promise<Project>
+        createNew: (name: string) => Promise<Project>
+        update: (id: string, data: Partial<Pick<Project, 'name' | 'status'>>) => Promise<Project | null>
+        delete: (id: string) => Promise<void>
+      }
+      settings: {
+        get: () => Promise<AppSettings>
+        update: (data: Partial<AppSettings>) => Promise<AppSettings>
+      }
+      dialog: {
+        openFolder: () => Promise<string | null>
       }
       on: (channel: string, callback: (...args: unknown[]) => void) => () => void
     }

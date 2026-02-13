@@ -9,12 +9,13 @@ export function createPty(
   cols: number,
   rows: number,
   cwd: string,
-  mainWindow: BrowserWindow
+  mainWindow: BrowserWindow,
+  shellOverride?: string
 ) {
   // Dynamic import because node-pty is a native module
   const pty = require('node-pty') as typeof import('node-pty')
 
-  const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh')
+  const shell = shellOverride || process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/zsh')
 
   const ptyProcess = pty.spawn(shell, [], {
     name: 'xterm-256color',

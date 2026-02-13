@@ -2,10 +2,14 @@ import { Component, useEffect, type ReactNode } from 'react'
 import { Plus, X } from 'lucide-react'
 import { useTerminalStore, getAllTerminalIds, findNode } from './stores/useTerminalStore'
 import { useOrchestratorStore } from './stores/useOrchestratorStore'
+import { useProjectStore } from './stores/useProjectStore'
+import { useSettingsStore } from './stores/useSettingsStore'
 import PanelTree from './components/terminal/PanelTree'
 import OrchestratorInput from './components/orchestrator/OrchestratorInput'
 import TaskDashboard from './components/orchestrator/TaskDashboard'
-import type { AgentType, OrchestratorSession, OrchestratorTask, PanelNode, TerminalPanel } from './types'
+import ProjectSidebar from './components/sidebar/ProjectSidebar'
+import WelcomeScreen from './components/WelcomeScreen'
+import type { AgentType, OrchestratorSession, OrchestratorTask, PanelNode, Project, TerminalPanel } from './types'
 
 // ─── Error Boundary ──────────────────────────────────────────────
 
@@ -60,13 +64,41 @@ export default function App() {
 
 function AppInner() {
   const { tabs, activeTabId, addTab, removeTab, setActiveTab } = useTerminalStore()
+  const projectsLoaded = useProjectStore((s) => s.loaded)
+  const projectCount = useProjectStore((s) => s.projects.length)
+  const showWelcome = projectsLoaded && projectCount === 0 && tabs.length === 0
 
-  // Create first terminal on mount
+  // Load projects + settings on mount, listen for updates
   useEffect(() => {
-    if (tabs.length === 0) {
-      addTab()
-    }
+    useProjectStore.getState().loadProjects()
+    useSettingsStore.getState().loadSettings()
+
+    const unsubs: (() => void)[] = []
+
+    unsubs.push(
+      window.api.on('project:list-updated', (...args: unknown[]) => {
+        const projects = args[0] as Project[]
+        useProjectStore.getState()._setProjects(projects)
+      })
+    )
+
+    unsubs.push(
+      window.api.on('settings:changed', (...args: unknown[]) => {
+        const settings = args[0] as import('./types').AppSettings
+        useSettingsStore.getState()._setSettings(settings)
+      })
+    )
+
+    return () => unsubs.forEach((u) => u())
   }, [])
+
+  // Create first terminal after projects load (skip if no projects — show welcome instead)
+  useEffect(() => {
+    if (!projectsLoaded) return
+    if (tabs.length === 0 && projectCount > 0) {
+      addTab(useProjectStore.getState().getActiveCwd())
+    }
+  }, [projectsLoaded])
 
   // Listen for IPC-driven shortcuts from main process
   useEffect(() => {
@@ -116,6 +148,12 @@ function AppInner() {
       })
     )
 
+    unsubs.push(
+      window.api.on('sidebar:toggle', () => {
+        useProjectStore.getState().toggleSidebar()
+      })
+    )
+
     return () => unsubs.forEach((u) => u())
   }, [])
 
@@ -155,14 +193,12 @@ function AppInner() {
       window.api.on('orchestrator:assign-tasks', (...args: unknown[]) => {
         try {
           const payload = args[0] as {
-            tasks: Array<{ id: string; title: string; prompt: string }>
-            cwd: string
+            tasks: Array<{ id: string; title: string; prompt: string; cwd?: string }>
           }
           const tasksToAssign = payload.tasks
-          const cwd = payload.cwd
           if (!Array.isArray(tasksToAssign) || tasksToAssign.length === 0) return
           setTimeout(() => {
-            useTerminalStore.getState().addTaskTabs(tasksToAssign, cwd)
+            useTerminalStore.getState().addTaskTabs(tasksToAssign)
           }, 50)
         } catch (err) {
           console.error('[Orchestrator] assign-tasks error:', err)
@@ -191,7 +227,7 @@ function AppInner() {
     const handler = (e: KeyboardEvent) => {
       if (e.metaKey && e.key === 't') {
         e.preventDefault()
-        addTab()
+        addTab(useProjectStore.getState().getActiveCwd())
       }
       if (e.metaKey && !e.shiftKey && e.key === 'w') {
         e.preventDefault()
@@ -321,7 +357,7 @@ function AppInner() {
 
         {/* New tab button */}
         <button
-          onClick={() => addTab()}
+          onClick={() => addTab(useProjectStore.getState().getActiveCwd())}
           className="no-drag"
           style={{
             width: 28,
@@ -342,34 +378,43 @@ function AppInner() {
         </button>
       </div>
 
-      {/* Terminal area + dashboard */}
+      {/* Sidebar + Terminal area + dashboard */}
       <div className="flex-1 flex" style={{ overflow: 'hidden' }}>
-        {/* Terminal area */}
+        {/* Project sidebar */}
+        <ProjectSidebar />
+
+        {/* Terminal area or welcome */}
         <div className="flex-1" style={{ position: 'relative', overflow: 'hidden' }}>
-          {tabs.map((tab) => {
-            const isActive = tab.id === activeTabId
-            return (
-              <div
-                key={tab.id}
-                style={{
-                  position: 'absolute',
-                  top: 0,
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  visibility: isActive ? 'visible' : 'hidden',
-                  zIndex: isActive ? 1 : 0
-                }}
-              >
-                <PanelTree
-                  node={tab.root}
-                  focusedPanelId={tab.focusedPanelId}
-                />
-              </div>
-            )
-          })}
-          {/* Orchestrator floating input */}
-          <OrchestratorInput />
+          {showWelcome ? (
+            <WelcomeScreen />
+          ) : (
+            <>
+              {tabs.map((tab) => {
+                const isActive = tab.id === activeTabId
+                return (
+                  <div
+                    key={tab.id}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      visibility: isActive ? 'visible' : 'hidden',
+                      zIndex: isActive ? 1 : 0
+                    }}
+                  >
+                    <PanelTree
+                      node={tab.root}
+                      focusedPanelId={tab.focusedPanelId}
+                    />
+                  </div>
+                )
+              })}
+              {/* Orchestrator floating input */}
+              <OrchestratorInput />
+            </>
+          )}
         </div>
 
         {/* Task dashboard sidebar */}

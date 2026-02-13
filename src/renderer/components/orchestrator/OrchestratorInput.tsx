@@ -2,6 +2,7 @@ import { useRef, useEffect } from 'react'
 import { Send, X, Loader2 } from 'lucide-react'
 import { useOrchestratorStore } from '../../stores/useOrchestratorStore'
 import { useTerminalStore } from '../../stores/useTerminalStore'
+import { useProjectStore } from '../../stores/useProjectStore'
 
 export default function OrchestratorInput() {
   const { session, tasks, showInput, inputValue, submitIdea, cancel, setInputValue } =
@@ -19,7 +20,8 @@ export default function OrchestratorInput() {
     if (!trimmed) return
     const termState = useTerminalStore.getState()
     const activeTab = termState.tabs.find((t) => t.id === termState.activeTabId)
-    const cwd = activeTab?.cwd || '~'
+    const projectCwd = useProjectStore.getState().getActiveCwd()
+    const cwd = activeTab?.cwd || projectCwd || '~'
     submitIdea(trimmed, cwd)
   }
 

@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { useTerminalStore, findNode } from '../../stores/useTerminalStore'
+import { useSettingsStore } from '../../stores/useSettingsStore'
 import { createDetector } from '../../lib/agentDetector'
 import type { AgentInfo, TerminalPanel } from '../../types'
 
@@ -98,10 +99,11 @@ export default function XTerminal({ id, isFocused }: XTerminalProps) {
     if (!containerRef.current || initialized.current) return
     initialized.current = true
 
+    const settingsFontSize = useSettingsStore.getState().settings.fontSize
     const terminal = new Terminal({
       theme: THEME,
       fontFamily: "'SF Mono', 'Cascadia Code', 'JetBrains Mono', Menlo, monospace",
-      fontSize: 13,
+      fontSize: settingsFontSize,
       lineHeight: 1.4,
       letterSpacing: 0,
       cursorStyle: 'bar',

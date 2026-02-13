@@ -1,6 +1,9 @@
 import { BrowserWindow } from 'electron'
 import { query } from '@anthropic-ai/claude-code'
 import { parseTasksFromResponse } from './parser'
+import { addSessionToProject, listProjects as listAllProjects } from './projectStore'
+import { createWorktree, copyIgnoredFiles, removeWorktree, cleanupSessionWorktrees } from './worktree'
+import { execSync } from 'child_process'
 
 const MAX_CONCURRENT = 3
 const TASK_TIMEOUT_MS = 15 * 60 * 1000
@@ -14,6 +17,7 @@ interface TaskState {
   panelId: string | null
   error?: string
   startedAt?: number
+  worktreePath?: string
 }
 
 interface Session {
@@ -29,6 +33,8 @@ export function createOrchestrator(mainWindow: BrowserWindow) {
   let tasks: TaskState[] = []
   let abortController: AbortController | null = null
   let sessionCwd: string = process.env.HOME || '/'
+  let currentProjectId: string | undefined
+  let sessionStartedAt: string | undefined
 
   setInterval(() => {
     if (!session || session.status !== 'running') return
@@ -116,19 +122,48 @@ export function createOrchestrator(mainWindow: BrowserWindow) {
     if (failedCount > 0 || blockedCount > 0) {
       session.status = 'failed'
       session.error = `${failedCount} failed, ${blockedCount} blocked`
+      persistSession('failed')
       emitSession()
       send('orchestrator:error', session.error)
       return
     }
 
     session.status = 'completed'
+    persistSession('completed')
     emitSession()
     send('orchestrator:complete', null)
   }
 
-  async function start(idea: string, cwd: string) {
+  function persistSession(status: 'completed' | 'failed') {
+    if (!currentProjectId || !session || !sessionStartedAt) return
+
+    const sessionRecord = {
+      id: session.id,
+      idea: session.idea,
+      status,
+      totalCost: session.totalCost,
+      startedAt: sessionStartedAt,
+      finishedAt: new Date().toISOString(),
+      tasks: tasks.filter((t) => t.status === 'completed' || t.status === 'failed' || t.status === 'blocked').map((t) => ({
+        id: t.id,
+        title: t.title,
+        prompt: t.prompt,
+        dependsOn: t.dependsOn,
+        status: t.status as 'completed' | 'failed' | 'blocked'
+      }))
+    }
+
+    addSessionToProject(currentProjectId, sessionRecord)
+    if (!mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('project:list-updated', listAllProjects())
+    }
+  }
+
+  async function start(idea: string, cwd: string, projectId?: string) {
     abortController = new AbortController()
     sessionCwd = cwd
+    currentProjectId = projectId
+    sessionStartedAt = new Date().toISOString()
 
     session = {
       id: crypto.randomUUID(),
@@ -233,6 +268,17 @@ Working directory: ${cwd}`
     }
   }
 
+  function getGitRoot(): string | null {
+    try {
+      return execSync('git rev-parse --show-toplevel', {
+        cwd: sessionCwd,
+        encoding: 'utf-8'
+      }).trim()
+    } catch {
+      return null
+    }
+  }
+
   function assignNextTasks() {
     const blockedChanged = blockUnrunnableTasks()
     if (blockedChanged) emitTasks()
@@ -259,11 +305,27 @@ Working directory: ${cwd}`
       return
     }
 
-    toAssign.forEach((t) => {
+    // Create worktrees for each task (if cwd is a git repo)
+    const gitRoot = getGitRoot()
+    const tasksWithCwd = toAssign.map((t) => {
+      let taskCwd = sessionCwd
+      if (session) {
+        const worktreePath = createWorktree(sessionCwd, session.id, t.id)
+        if (worktreePath) {
+          t.worktreePath = worktreePath
+          taskCwd = worktreePath
+          // Copy .env files to worktree
+          if (gitRoot) {
+            copyIgnoredFiles(gitRoot, worktreePath)
+          }
+        }
+      }
       t.status = 'assigned'
+      return { id: t.id, title: t.title, prompt: t.prompt, cwd: taskCwd }
     })
+
     emitTasks()
-    send('orchestrator:assign-tasks', { tasks: toAssign, cwd: sessionCwd })
+    send('orchestrator:assign-tasks', { tasks: tasksWithCwd })
   }
 
   function onTaskCompleted(taskId: string, panelId: string) {
@@ -317,6 +379,8 @@ Working directory: ${cwd}`
       emitTasks()
     }
     if (session) {
+      // Clean up all worktrees for this session
+      cleanupSessionWorktrees(sessionCwd, session.id)
       session.status = 'failed'
       session.error = 'Cancelled by user'
       emitSession()

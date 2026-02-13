@@ -1,7 +1,16 @@
-import { app, BrowserWindow, ipcMain, shell } from 'electron'
+import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron'
 import path from 'path'
 import { createPty, writePty, resizePty, closePty, closeAllPty } from './pty'
 import { createOrchestrator } from './orchestrator'
+import {
+  listProjects,
+  getProject,
+  createProject,
+  createNewProject,
+  updateProject,
+  deleteProject
+} from './projectStore'
+import { getSettings, updateSettings } from './settingsStore'
 
 let mainWindow: BrowserWindow | null = null
 let orchestrator: ReturnType<typeof createOrchestrator> | null = null
@@ -78,6 +87,13 @@ function createWindow() {
       mainWindow?.webContents.send('orchestrator:toggle-input')
       return
     }
+
+    // Cmd+B → toggle project sidebar
+    if ((input.key === 'B' || input.key === 'b') && !input.shift) {
+      _event.preventDefault()
+      mainWindow?.webContents.send('sidebar:toggle')
+      return
+    }
   })
 
   orchestrator = createOrchestrator(mainWindow)
@@ -88,7 +104,8 @@ function createWindow() {
 ipcMain.handle('pty:create', (_event, { id, cols, rows, cwd }) => {
   if (!mainWindow) return
   const resolvedCwd = (!cwd || cwd === '~') ? (process.env.HOME || '/') : cwd
-  createPty(id, cols, rows, resolvedCwd, mainWindow)
+  const settings = getSettings()
+  createPty(id, cols, rows, resolvedCwd, mainWindow, settings.shell)
 })
 
 ipcMain.handle('pty:write', (_event, { id, data }) => {
@@ -103,12 +120,76 @@ ipcMain.handle('pty:close', (_event, { id }) => {
   closePty(id)
 })
 
+// --- Project IPC ---
+
+function broadcastProjects() {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('project:list-updated', listProjects())
+  }
+}
+
+ipcMain.handle('project:list', () => {
+  return listProjects()
+})
+
+ipcMain.handle('project:get', (_event, { id }) => {
+  return getProject(id)
+})
+
+ipcMain.handle('project:create', (_event, { name, path }) => {
+  const project = createProject(name, path)
+  broadcastProjects()
+  return project
+})
+
+ipcMain.handle('project:create-new', (_event, { name }) => {
+  const project = createNewProject(name)
+  broadcastProjects()
+  return project
+})
+
+ipcMain.handle('project:update', (_event, { id, data }) => {
+  const project = updateProject(id, data)
+  broadcastProjects()
+  return project
+})
+
+ipcMain.handle('project:delete', (_event, { id }) => {
+  deleteProject(id)
+  broadcastProjects()
+})
+
+// --- Settings IPC ---
+
+ipcMain.handle('settings:get', () => {
+  return getSettings()
+})
+
+ipcMain.handle('settings:update', (_event, { data }) => {
+  const updated = updateSettings(data)
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('settings:changed', updated)
+  }
+  return updated
+})
+
+// --- Dialog IPC ---
+
+ipcMain.handle('dialog:open-folder', async () => {
+  if (!mainWindow) return null
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory', 'createDirectory']
+  })
+  if (result.canceled || result.filePaths.length === 0) return null
+  return result.filePaths[0]
+})
+
 // --- Orchestrator IPC ---
 
-ipcMain.handle('orchestrator:submit-idea', (_event, { idea, cwd }) => {
+ipcMain.handle('orchestrator:submit-idea', (_event, { idea, cwd, projectId }) => {
   if (!orchestrator) return
   const resolvedCwd = (!cwd || cwd === '~') ? (process.env.HOME || '/') : cwd
-  orchestrator.start(idea, resolvedCwd)
+  orchestrator.start(idea, resolvedCwd, projectId)
 })
 
 ipcMain.handle('orchestrator:task-completed', (_event, { taskId, panelId }) => {
